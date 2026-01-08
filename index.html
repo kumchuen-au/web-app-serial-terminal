@@ -252,19 +252,33 @@
                     await device.selectConfiguration(1);
                 }
 
-                iface = device.configuration.interfaces[0];
-                await device.claimInterface(iface.interfaceNumber);
-                debugLog(`Interface ${iface.interfaceNumber} claimed`);
-
-                const alt = iface.alternates[0];
-                endpointIn = alt.endpoints.find(e => e.direction === 'in');
-                endpointOut = alt.endpoints.find(e => e.direction === 'out');
-
-                if (!endpointIn || !endpointOut) {
-                    throw new Error('Endpoints not found');
+                // Try to find the right interface with bulk endpoints
+                let foundInterface = false;
+                for (const intf of device.configuration.interfaces) {
+                    debugLog(`Checking interface ${intf.interfaceNumber}...`);
+                    
+                    for (const alt of intf.alternates) {
+                        const epIn = alt.endpoints.find(e => e.direction === 'in' && e.type === 'bulk');
+                        const epOut = alt.endpoints.find(e => e.direction === 'out' && e.type === 'bulk');
+                        
+                        if (epIn && epOut) {
+                            iface = intf;
+                            await device.claimInterface(iface.interfaceNumber);
+                            debugLog(`Interface ${iface.interfaceNumber} claimed`);
+                            
+                            endpointIn = epIn;
+                            endpointOut = epOut;
+                            foundInterface = true;
+                            debugLog(`Endpoints: IN=${endpointIn.endpointNumber}, OUT=${endpointOut.endpointNumber}`);
+                            break;
+                        }
+                    }
+                    if (foundInterface) break;
                 }
 
-                debugLog(`Endpoints: IN=${endpointIn.endpointNumber}, OUT=${endpointOut.endpointNumber}`);
+                if (!foundInterface) {
+                    throw new Error('No interface with bulk IN/OUT endpoints found');
+                }
 
                 await ch343Initialize();
                 
