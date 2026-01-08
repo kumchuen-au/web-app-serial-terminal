@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual Signal Serial Terminal</title>
+    <script src="https://unpkg.com/web-serial-polyfill/dist/serial.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 900px; margin: auto; }
+        
+        /* Signal Buttons Styling */
+        .signal-controls { display: flex; gap: 20px; margin: 20px 0; padding: 15px; background: #eee; border-radius: 8px; }
+        .signal-group { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        .state-btn { width: 100px; padding: 12px; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; color: white; transition: 0.2s; }
+        .btn-off { background: #6c757d; }
+        .btn-on { background: #28a745; box-shadow: 0 0 10px rgba(40, 167, 69, 0.5); }
+        
+        /* Terminal Styling */
+        #terminal { width: 100%; height: 300px; background: #1e1e1e; color: #00ff00; padding: 15px; overflow-y: auto; font-family: 'Courier New', monospace; border-radius: 5px; margin-bottom: 10px; }
+        
+        .row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; flex-wrap: wrap; }
+        select, input { padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+        .main-btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; }
+        #connectBtn { background: #007bff; }
+        #disconnectBtn { background: #dc3545; }
+        #sendBtn { background: #17a2b8; }
+        button:disabled { background: #ccc !important; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Manual Signal Terminal</h2>
+
+    <div class="row">
+        <button id="connectBtn" class="main-btn">Connect Device</button>
+        <select id="baudrate">
+            <option value="9600">9600</option>
+            <option value="115200" selected>115200</option>
+        </select>
+        <select id="parity">
+            <option value="none">None</option>
+            <option value="even">Even</option>
+            <option value="odd">Odd</option>
+        </select>
+        <button id="disconnectBtn" class="main-btn" disabled>Disconnect</button>
+    </div>
+
+    <div class="signal-controls">
+        <div class="signal-group">
+            <label>DTR Pin</label>
+            <button id="dtrBtn" class="state-btn btn-off" disabled>OFF</button>
+        </div>
+        <div class="signal-group">
+            <label>RTS Pin</label>
+            <button id="rtsBtn" class="state-btn btn-off" disabled>OFF</button>
+        </div>
+        <div style="margin-left: 20px; font-size: 0.85em; color: #555;">
+            Click to toggle signal state (High/Low)
+        </div>
+    </div>
+
+    <div id="terminal"></div>
+
+    <div class="row">
+        <input type="text" id="inputLine" placeholder="Send data..." style="flex-grow: 1;">
+        <button id="sendBtn" class="main-btn" disabled>Send</button>
+    </div>
+</div>
+
+<script>
+    const serial = navigator.serial || serialPolyfill;
+    let port, reader, keepReading = true;
+    
+    // Track internal states
+    let dtrState = false;
+    let rtsState = false;
+
+    const dtrBtn = document.getElementById('dtrBtn');
+    const rtsBtn = document.getElementById('rtsBtn');
+    const terminal = document.getElementById('terminal');
+
+    // Toggle Functions
+    async function toggleDTR() {
+        dtrState = !dtrState;
+        await applySignals();
+        updateButtonUI(dtrBtn, dtrState);
+    }
+
+    async function toggleRTS() {
+        rtsState = !rtsState;
+        await applySignals();
+        updateButtonUI(rtsBtn, rtsState);
+    }
+
+    async function applySignals() {
+        if (port && port.writable) {
+            try {
+                // setSignals updates the physical pins
+                await port.setSignals({
+                    dataTerminalReady: dtrState,
+                    requestToSend: rtsState
+                });
+            } catch (e) {
+                console.error("Failed to set signals:", e);
+            }
+        }
+    }
+
+    function updateButtonUI(btn, state) {
+        btn.innerText = state ? "ON (High)" : "OFF (Low)";
+        btn.className = state ? "state-btn btn-on" : "state-btn btn-off";
+    }
+
+    // Connection Logic
+    document.getElementById('connectBtn').onclick = async () => {
+        try {
+            port = await serial.requestPort();
+            await port.open({ 
+                baudRate: parseInt(document.getElementById('baudrate').value),
+                parity: document.getElementById('parity').value 
+            });
+
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('disconnectBtn').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
+            dtrBtn.disabled = false;
+            rtsBtn.disabled = false;
+            
+            // Set initial state to OFF
+            dtrState = false;
+            rtsState = false;
+            await applySignals();
+
+            readLoop();
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    };
+
+    async function readLoop() {
+        while (port.readable && keepReading) {
+            reader = port.readable.getReader();
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    terminal.innerText += new TextDecoder().decode(value);
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+            } catch (err) { break; } finally { reader.releaseLock(); }
+        }
+    }
+
+    document.getElementById('sendBtn').onclick = async () => {
+        const writer = port.writable.getWriter();
+        await writer.write(new TextEncoder().encode(document.getElementById('inputLine').value + '\r\n'));
+        writer.releaseLock();
+        document.getElementById('inputLine').value = '';
+    };
+
+    document.getElementById('disconnectBtn').onclick = async () => {
+        location.reload(); // Simplest way to reset all states and port
+    };
+
+    dtrBtn.onclick = toggleDTR;
+    rtsBtn.onclick = toggleRTS;
+</script>
+</body>
+</html>
