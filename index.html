@@ -347,16 +347,16 @@
                     index: iface.interfaceNumber
                 }, lineCoding);
                 
-                // Also activate DTR and RTS to enable communication
+                // Set DTR and RTS to OFF initially (both signals = 0)
                 await device.controlTransferOut({
                     requestType: 'class',
                     recipient: 'interface',
                     request: CDC_SET_CONTROL_LINE_STATE,
-                    value: 0x03, // DTR=1, RTS=1
+                    value: 0x00, // DTR=0, RTS=0
                     index: iface.interfaceNumber
                 });
                 
-                debugLog(`✓ Set: ${baudRate} baud, ${parityType} parity, 8N1, DTR+RTS active`);
+                debugLog(`✓ Set: ${baudRate} baud, ${parityType} parity, 8N1, DTR=OFF, RTS=OFF`);
             } catch (err) {
                 debugLog(`Set line coding error: ${err.message}`);
                 throw err;
@@ -381,7 +381,8 @@
                     const dataBits = data[6];
                     
                     const parityNames = ['none', 'odd', 'even', 'mark', 'space'];
-                    debugLog(`✓ Read back: ${baudRate} baud, ${parityNames[parity] || parity} parity, ${dataBits} data bits, ${stopBits} stop bits`);
+                    const stopBitsNames = ['1', '1.5', '2'];
+                    debugLog(`✓ Read back: ${baudRate} baud, ${dataBits}${parityNames[parity] || 'N'}${stopBitsNames[stopBits] || stopBits}`);
                     
                     if (baudRate !== currentBaudRate) {
                         debugLog(`⚠ WARNING: Baud rate mismatch! Set ${currentBaudRate} but device reports ${baudRate}`);
