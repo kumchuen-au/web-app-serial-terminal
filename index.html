@@ -228,10 +228,12 @@
         }
 
         // ============================================
-        // WEBUSB API (ANDROID)
+        // WEBUSB API (ANDROID) - CDC-ACM Protocol
         // ============================================
-        const CH343_REQ_WRITE_REG = 0x5F;
-        const CH343_REQ_READ_REG = 0x95;
+        // CDC-ACM Standard Request Codes
+        const CDC_SET_LINE_CODING = 0x20;
+        const CDC_GET_LINE_CODING = 0x21;
+        const CDC_SET_CONTROL_LINE_STATE = 0x22;
 
         async function connectWebUSB() {
             try {
@@ -257,6 +259,7 @@
                 for (const intf of device.configuration.interfaces) {
                     debugLog(`Checking interface ${intf.interfaceNumber}...`);
                     
+                    // CH343 CDC uses interface class 2 (Communications)
                     for (const alt of intf.alternates) {
                         const epIn = alt.endpoints.find(e => e.direction === 'in' && e.type === 'bulk');
                         const epOut = alt.endpoints.find(e => e.direction === 'out' && e.type === 'bulk');
@@ -264,7 +267,7 @@
                         if (epIn && epOut) {
                             iface = intf;
                             await device.claimInterface(iface.interfaceNumber);
-                            debugLog(`Interface ${iface.interfaceNumber} claimed`);
+                            debugLog(`Interface ${iface.interfaceNumber} claimed (class: ${alt.interfaceClass})`);
                             
                             endpointIn = epIn;
                             endpointOut = epOut;
@@ -280,10 +283,9 @@
                     throw new Error('No interface with bulk IN/OUT endpoints found');
                 }
 
-                await ch343Initialize();
-                
+                // Set line coding (baud rate, stop bits, parity, data bits)
                 currentBaudRate = parseInt(document.getElementById('baudrate').value);
-                await ch343SetBaudRate(currentBaudRate);
+                await cdcSetLineCoding(currentBaudRate);
 
                 updateStatus('Connected successfully (Android mode)');
                 keepReading = true;
@@ -296,46 +298,36 @@
             }
         }
 
-        async function ch343Initialize() {
+        async function cdcSetLineCoding(baudRate) {
             try {
-                await device.controlTransferOut({
-                    requestType: 'vendor',
-                    recipient: 'device',
-                    request: CH343_REQ_WRITE_REG,
-                    value: 0x2518,
-                    index: 0x0050
-                });
-
-                await device.controlTransferOut({
-                    requestType: 'vendor',
-                    recipient: 'device',
-                    request: CH343_REQ_WRITE_REG,
-                    value: 0x2727,
-                    index: 0
-                });
-
-                debugLog('CH343 initialized');
-            } catch (err) {
-                debugLog(`Init error: ${err.message}`);
-            }
-        }
-
-        async function ch343SetBaudRate(baudRate) {
-            try {
-                const factor = 1532620800 / baudRate;
-                const divisor = Math.floor(factor);
+                // CDC Line Coding structure: 7 bytes
+                // dwDTERate (4 bytes) - baud rate
+                // bCharFormat (1 byte) - stop bits (0=1, 1=1.5, 2=2)
+                // bParityType (1 byte) - parity (0=none, 1=odd, 2=even, 3=mark, 4=space)
+                // bDataBits (1 byte) - data bits (5,6,7,8)
+                
+                const lineCoding = new Uint8Array(7);
+                // Baud rate (little-endian)
+                lineCoding[0] = baudRate & 0xFF;
+                lineCoding[1] = (baudRate >> 8) & 0xFF;
+                lineCoding[2] = (baudRate >> 16) & 0xFF;
+                lineCoding[3] = (baudRate >> 24) & 0xFF;
+                lineCoding[4] = 0; // 1 stop bit
+                lineCoding[5] = 0; // No parity
+                lineCoding[6] = 8; // 8 data bits
                 
                 await device.controlTransferOut({
-                    requestType: 'vendor',
-                    recipient: 'device',
-                    request: CH343_REQ_WRITE_REG,
-                    value: 0x1312,
-                    index: divisor
-                });
+                    requestType: 'class',
+                    recipient: 'interface',
+                    request: CDC_SET_LINE_CODING,
+                    value: 0,
+                    index: iface.interfaceNumber
+                }, lineCoding);
                 
-                debugLog(`Baud rate: ${baudRate}`);
+                debugLog(`Baud rate set: ${baudRate}`);
             } catch (err) {
-                debugLog(`Baud rate error: ${err.message}`);
+                debugLog(`Set line coding error: ${err.message}`);
+                throw err;
             }
         }
 
@@ -367,14 +359,19 @@
         async function setSignalsUSB(dtr, rts) {
             if (!device) return;
             try {
-                const signals = (dtr ? 0x20 : 0) | (rts ? 0x40 : 0);
+                // CDC Control Line State
+                // Bit 0: DTR
+                // Bit 1: RTS
+                const controlLineState = (dtr ? 0x01 : 0) | (rts ? 0x02 : 0);
+                
                 await device.controlTransferOut({
-                    requestType: 'vendor',
-                    recipient: 'device',
-                    request: CH343_REQ_WRITE_REG,
-                    value: 0x2727,
-                    index: signals
+                    requestType: 'class',
+                    recipient: 'interface',
+                    request: CDC_SET_CONTROL_LINE_STATE,
+                    value: controlLineState,
+                    index: iface.interfaceNumber
                 });
+                
                 debugLog(`Signals: DTR=${dtr}, RTS=${rts}`);
             } catch (err) {
                 debugLog(`Signal error: ${err.message}`);
