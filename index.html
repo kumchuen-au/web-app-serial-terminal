@@ -1,251 +1,321 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Serial2 Terminal (CH343 Enhanced)</title>
+    <title>Universal Serial Terminal (CH343 Enhanced)</title>
+    <!-- Web Serial Polyfill (used only if navigator.serial is not available) -->
     <script src="https://unpkg.com/web-serial-polyfill/dist/serial.js"></script>
     <style>
-        body {
-            font-family: sans-serif;
-            padding: 15px;
-            background: #f0f2f5;
-        }
-
-        .card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            max-width: 900px;
-            margin: auto;
-        }
-
-        .controls {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-bottom: 15px;
-            align-items: center;
-        }
-
-        .signal-controls {
-            display: flex;
-            gap: 10px;
-            margin: 15px 0;
-            padding: 10px;
-            background: #eee;
-            border-radius: 5px;
-        }
-
-        # {
-            width: 100%;
-            height: 300px;
-            background: #1e1e1e;
-            color: #00ff00;
-            padding: 15px;
-            overflow-y: auto;
-            font-family: monospace;
-            border-radius: 5px;
-            margin-bottom: 10px;
-            white-space: pre-wrap;
-        }
-
-        #debugLog {
-            width: 100%;
-            height: 80px;
-            background: #333;
-            color: #ffcc00;
-            padding: 10px;
+        body { font-family: sans-serif; padding: 15px; background: #f0f2f5; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 900px; margin: auto; }
+        .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }
+        .signal-controls { display: flex; gap: 10px; margin: 15px 0; padding: 10px; background: #eee; border-radius: 5px; }
+        #terminal { width: 100%; height: 300px; background: #1e1e1e; color: #00ff00; padding: 15px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; }
+        #debugLog { width: 100%; height: 100px; background: #333; color: #ffcc00; padding: 10px; font-size: 12px; overflow-y: auto; border-radius: 5px; margin-top: 10px; white-space: pre-wrap; }
+        button { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; background: #007bff; }
+        button:disabled { background: #ccc !important; cursor: default; }
+        .btn-off { background: #6c757d; width: 80px; }
+        .btn-on { background: #28a745; width: 80px; }
+        input[type="text"] { padding: 10px; flex-grow: 1; border: 1px solid #ccc; border-radius: 4px; }
+        .status-pill {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
             font-size: 12px;
-            overflow-y: auto;
-            border-radius: 5px;
-            margin-top: 10px;
+            margin-left: 10px;
+            color: #fff;
         }
-
-        button {
-            padding: 10px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: bold;
-            color: white;
-            background: #007bff;
-        }
-
-        button:disabled {
-            background: #ccc !important;
-        }
-
-        .btn-off {
-            background: #6c757d;
-            width: 80px;
-        }
-
-        .btn-on {
-            background: #28a745;
-            width: 80px;
-        }
-
-        input[type="text"] {
-            padding: 10px;
-            flex-grow: 1;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
+        .status-disconnected { background: #dc3545; }
+        .status-connected { background: #28a745; }
     </style>
 </head>
-
 <body>
 
-    <div class="card">
-        <h2>Serial2 Terminal</h2>
+<div class="card">
+    <h2>
+        Serial Terminal
+        <span id="statusPill" class="status-pill status-disconnected">Disconnected</span>
+    </h2>
 
-        <div class="controls">
-            <button id="connectBtn">Connect Device</button>
-            <select id="baudrate">
-                <option value="9600">9600</option>
-                <option value="115200" selected>115200</option>
-            </select>
-            <select id="parity">
-                <option value="none">None</option>
-                <option value="even">Even</option>
-                <option value="odd">Odd</option>
-            </select>
-            <button id="disconnectBtn" style="background:#dc3545;" disabled>Disconnect</button>
-        </div>
-
-        <div class="signal-controls">
-            <div style="display:flex; align-items:center; gap:5px;">
-                <label>DTR:</label>
-                <button id="dtrBtn" class="btn-off" disabled>OFF</button>
-            </div>
-            <div style="display:flex; align-items:center; gap:5px;">
-                <label>RTS:</label>
-                <button id="rtsBtn" class="btn-off" disabled>OFF</button>
-            </div>
-        </div>
-
-        <div id="terminal">--- Waiting for Device ---</div>
-
-        <div class="controls">
-            <input type="text" id="inputLine" placeholder="Type command...">
-            <button id="sendBtn" disabled>Send</button>
-        </div>
-
-        <strong>Debug Log:</strong>
-        <div id="debugLog">System Initialized.</div>
+    <div class="controls">
+        <button id="connectBtn">Connect Device</button>
+        <select id="baudrate">
+            <option value="9600">9600</option>
+            <option value="19200">19200</option>
+            <option value="38400">38400</option>
+            <option value="57600">57600</option>
+            <option value="115200" selected>115200</option>
+        </select>
+        <select id="parity">
+            <option value="none" selected>Parity: None</option>
+            <option value="even">Parity: Even</option>
+            <option value="odd">Parity: Odd</option>
+        </select>
+        <button id="disconnectBtn" style="background:#dc3545;" disabled>Disconnect</button>
     </div>
 
-    <script>
-        // Polyfill check
-        const serial = navigator.serial || (window.serialPolyfill ? serialPolyfill : null);
+    <div class="signal-controls">
+        <div style="display:flex; align-items:center; gap:5px;">
+            <label for="dtrBtn">DTR:</label>
+            <button id="dtrBtn" class="btn-off" disabled>OFF</button>
+        </div>
+        <div style="display:flex; align-items:center; gap:5px;">
+            <label for="rtsBtn">RTS:</label>
+            <button id="rtsBtn" class="btn-off" disabled>OFF</button>
+        </div>
+    </div>
 
-        let port, reader, keepReading = true;
-        let dtrState = false, rtsState = false;
+    <div id="terminal">--- Waiting for Device ---</div>
 
-        const debugLog = (msg) => {
-            const log = document.getElementById('debugLog');
-            log.innerText += `\n> ${msg}`;
-            log.scrollTop = log.scrollHeight;
-        };
+    <div class="controls">
+        <input type="text" id="inputLine" placeholder="Type command..." autocomplete="off">
+        <button id="sendBtn" disabled>Send</button>
+    </div>
 
-        async function applySignals() {
-            if (port && port.writable) {
-                try {
-                    await port.setSignals({ dataTerminalReady: dtrState, requestToSend: rtsState });
-                    debugLog(`Signals Updated: DTR=${dtrState}, RTS=${rtsState}`);
-                } catch (e) { debugLog("Signal Error: " + e.message); }
-            }
+    <strong>Debug Log:</strong>
+    <div id="debugLog">System Initialized.</div>
+</div>
+
+<script>
+(function () {
+    // --------- Setup / Globals ---------
+    const nativeSerial = navigator.serial;
+    const polyfillSerial = window.serialPolyfill ? serialPolyfill : null;
+    const serial = nativeSerial || polyfillSerial || null;
+
+    let port = null;
+    let reader = null;
+    let keepReading = false;
+    let dtrState = false;
+    let rtsState = false;
+
+    const terminalElem   = document.getElementById('terminal');
+    const debugLogElem   = document.getElementById('debugLog');
+    const connectBtn     = document.getElementById('connectBtn');
+    const disconnectBtn  = document.getElementById('disconnectBtn');
+    const sendBtn        = document.getElementById('sendBtn');
+    const dtrBtn         = document.getElementById('dtrBtn');
+    const rtsBtn         = document.getElementById('rtsBtn');
+    const inputLine      = document.getElementById('inputLine');
+    const baudrateSel    = document.getElementById('baudrate');
+    const paritySel      = document.getElementById('parity');
+    const statusPill     = document.getElementById('statusPill');
+
+    const textEncoder = new TextEncoder();
+    const textDecoder = new TextDecoder();
+
+    // --------- Helpers ---------
+    function debugLog(msg) {
+        debugLogElem.innerText += `\n> ${msg}`;
+        debugLogElem.scrollTop = debugLogElem.scrollHeight;
+        console.log("[SerialTerm]", msg);
+    }
+
+    function appendToTerminal(text) {
+        terminalElem.innerText += text;
+        terminalElem.scrollTop = terminalElem.scrollHeight;
+    }
+
+    function setStatus(connected) {
+        if (connected) {
+            statusPill.textContent = "Connected";
+            statusPill.classList.remove('status-disconnected');
+            statusPill.classList.add('status-connected');
+        } else {
+            statusPill.textContent = "Disconnected";
+            statusPill.classList.remove('status-connected');
+            statusPill.classList.add('status-disconnected');
         }
-        document.getElementById('connectBtn').onclick = async () => {
-            try {
-                debugLog("Requesting Port...");
+    }
 
-                const filters = [
-                    { usbVendorId: 0x1A86, usbProductId: 0x55D3 }, // CH343
-                    { usbVendorId: 0x1A86, usbProductId: 0x7523 }, // CH340/341
-                    { usbVendorId: 0x1A86 }                         // Any QinHeng
-                ];
+    function uiState(connected) {
+        connectBtn.disabled = connected || !serial;
+        disconnectBtn.disabled = !connected;
+        sendBtn.disabled = !connected;
+        dtrBtn.disabled = !connected;
+        rtsBtn.disabled = !connected;
+        baudrateSel.disabled = connected;
+        paritySel.disabled = connected;
 
-                // Try to request the port
-                port = await serial.requestPort({ filters });
-                debugLog("Port Selected. Opening...");
+        setStatus(connected);
+    }
 
-                await port.open({
-                    baudRate: parseInt(document.getElementById('baudrate').value),
-                    parity: document.getElementById('parity').value
-                });
+    async function applySignals() {
+        if (!port) return;
+        if (typeof port.setSignals !== "function") {
+            debugLog("Signals not supported on this port / implementation.");
+            return;
+        }
+        try {
+            await port.setSignals({
+                dataTerminalReady: dtrState,
+                requestToSend: rtsState
+            });
+            debugLog(`Signals Updated: DTR=${dtrState}, RTS=${rtsState}`);
+        } catch (e) {
+            debugLog("Signal Error: " + e.message);
+        }
+    }
 
-                debugLog("Connected Successfully!");
-                uiState(true);
-                readLoop();
-            } catch (err) {
-                debugLog("Connect Error: " + err.message);
+    // --------- Connection Handling ---------
+    connectBtn.onclick = async () => {
+        if (!serial) {
+            debugLog("Web Serial not supported in this browser and no polyfill available.");
+            alert("Web Serial is not available in this browser.");
+            return;
+        }
 
-                // FORCE SCANNER: Run this regardless of the error type
-                if (navigator.usb) {
-                    debugLog("Scanning all USB devices...");
+        try {
+            debugLog("Requesting Port...");
+
+            // Filters target CH343 and CH340/341 (WCH / QinHeng 0x1A86)
+            const filters = [
+                { usbVendorId: 0x1A86, usbProductId: 0x55D3 }, // CH343
+                { usbVendorId: 0x1A86, usbProductId: 0x7523 }, // CH340/341
+                { usbVendorId: 0x1A86 }                        // Any QinHeng
+            ];
+
+            port = await serial.requestPort({ filters });
+
+            debugLog("Port Selected. Opening...");
+
+            await port.open({
+                baudRate: parseInt(baudrateSel.value, 10),
+                parity: paritySel.value
+            });
+
+            debugLog("Connected Successfully!");
+            terminalElem.innerText = "--- Connected ---\n";
+            keepReading = true;
+            uiState(true);
+            readLoop().catch(err => {
+                debugLog("Read loop error: " + err.message);
+            });
+        } catch (err) {
+            debugLog("Connect Error: " + err.message);
+
+            // Optional: show raw USB devices for debugging (on supporting browsers)
+            if (navigator.usb) {
+                try {
                     const usbDevs = await navigator.usb.getDevices();
-                    if (usbDevs.length === 0) {
-                        debugLog("Result: 0 USB devices found. Check OTG/Cable.");
-                    } else {
-                        debugLog(`Found ${usbDevs.length} raw USB devices:`);
-                        usbDevs.forEach(d => {
-                            debugLog(`-> VID: 0x${d.vendorId.toString(16).padStart(4, '0')} PID: 0x${d.productId.toString(16).padStart(4, '0')}`);
-                        });
-                    }
+                    debugLog(`Found ${usbDevs.length} raw USB devices.`);
+                    usbDevs.forEach(d =>
+                        debugLog(`USB Dev: VID_${d.vendorId.toString(16)} PID_${d.productId.toString(16)}`)
+                    );
+                } catch (usbErr) {
+                    debugLog("navigator.usb.getDevices error: " + usbErr.message);
                 }
             }
-        };
+        }
+    };
 
-        async function readLoop() {
-            while (port.readable && keepReading) {
-                reader = port.readable.getReader();
-                try {
-                    while (true) {
-                        const { value, done } = await reader.read();
-                        if (done) break;
-                        document.getElementById('terminal').innerText += new TextDecoder().decode(value);
-                        terminal.scrollTop = terminal.scrollHeight;
+    async function readLoop() {
+        while (port && port.readable && keepReading) {
+            reader = port.readable.getReader();
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    if (value) {
+                        const text = textDecoder.decode(value);
+                        appendToTerminal(text);
                     }
-                } catch (err) { break; } finally { reader.releaseLock(); }
+                }
+            } catch (err) {
+                debugLog("Read error: " + err.message);
+                break;
+            } finally {
+                reader.releaseLock();
             }
         }
+    }
 
-        document.getElementById('sendBtn').onclick = async () => {
-            const writer = port.writable.getWriter();
-            await writer.write(new TextEncoder().encode(document.getElementById('inputLine').value + '\r\n'));
-            writer.releaseLock();
-            document.getElementById('inputLine').value = '';
-        };
+    disconnectBtn.onclick = async () => {
+        keepReading = false;
 
-        document.getElementById('dtrBtn').onclick = async function () {
-            dtrState = !dtrState;
-            this.className = dtrState ? "btn-on" : "btn-off";
-            this.innerText = dtrState ? "ON" : "OFF";
-            await applySignals();
-        };
-
-        document.getElementById('rtsBtn').onclick = async function () {
-            rtsState = !rtsState;
-            this.className = rtsState ? "btn-on" : "btn-off";
-            this.innerText = rtsState ? "ON" : "OFF";
-            await applySignals();
-        };
-
-        document.getElementById('disconnectBtn').onclick = () => location.reload();
-
-        function uiState(connected) {
-            document.getElementById('connectBtn').disabled = connected;
-            document.getElementById('disconnectBtn').disabled = !connected;
-            document.getElementById('sendBtn').disabled = !connected;
-            document.getElementById('dtrBtn').disabled = !connected;
-            document.getElementById('rtsBtn').disabled = !connected;
+        if (reader) {
+            try { await reader.cancel(); } catch (e) { /* ignore */ }
+            reader = null;
         }
-    </script>
+        if (port) {
+            try {
+                await port.close();
+                debugLog("Port closed.");
+            } catch (e) {
+                debugLog("Error closing port: " + e.message);
+            }
+            port = null;
+        }
+
+        dtrState = false;
+        rtsState = false;
+        dtrBtn.className = "btn-off";
+        dtrBtn.textContent = "OFF";
+        rtsBtn.className = "btn-off";
+        rtsBtn.textContent = "OFF";
+
+        uiState(false);
+        appendToTerminal("\n--- Disconnected ---\n");
+    };
+
+    // --------- Data TX ---------
+    async function sendCurrentLine() {
+        if (!port || !port.writable) {
+            debugLog("Cannot send: port not writable.");
+            return;
+        }
+        const line = inputLine.value;
+        if (!line) return;
+
+        try {
+            const writer = port.writable.getWriter();
+            await writer.write(textEncoder.encode(line + "\r\n"));
+            writer.releaseLock();
+            inputLine.value = "";
+        } catch (e) {
+            debugLog("Write error: " + e.message);
+        }
+    }
+
+    sendBtn.onclick = sendCurrentLine;
+
+    inputLine.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            sendCurrentLine();
+        }
+    });
+
+    // --------- Signal Buttons ---------
+    dtrBtn.onclick = async function () {
+        dtrState = !dtrState;
+        this.className = dtrState ? "btn-on" : "btn-off";
+        this.textContent = dtrState ? "ON" : "OFF";
+        await applySignals();
+    };
+
+    rtsBtn.onclick = async function () {
+        rtsState = !rtsState;
+        this.className = rtsState ? "btn-on" : "btn-off";
+        this.textContent = rtsState ? "ON" : "OFF";
+        await applySignals();
+    };
+
+    // --------- Initial State ---------
+    if (!serial) {
+        debugLog("No Web Serial support detected (navigator.serial missing, polyfill not active).");
+        connectBtn.disabled = true;
+        alert("Your browser does not support Web Serial. Use Chrome or Edge on desktop.");
+    } else {
+        debugLog(serial === nativeSerial
+            ? "Using native Web Serial API."
+            : "Using Web Serial polyfill.");
+    }
+
+    uiState(false);
+})();
+</script>
+
 </body>
-
 </html>
-
