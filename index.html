@@ -70,8 +70,10 @@
 
     <script>
         // Detect which API to use
-        const useWebSerial = 'serial' in navigator;
-        const useWebUSB = 'usb' in navigator && !useWebSerial;
+        // On Android, force WebUSB even if Web Serial exists (Web Serial doesn't support USB devices on Android)
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        const useWebSerial = 'serial' in navigator && !isAndroid;
+        const useWebUSB = 'usb' in navigator && (isAndroid || !('serial' in navigator));
         
         // CH343/CH340 USB IDs
         const CH343_VENDOR_ID = 0x1A86;
