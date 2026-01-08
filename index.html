@@ -254,39 +254,52 @@
                     await device.selectConfiguration(1);
                 }
 
-                // Try to find the right interface with bulk endpoints
-                let foundInterface = false;
+                // CDC devices typically have 2 interfaces: control (0) and data (1)
+                // We need to claim both
+                let controlInterface = null;
+                let dataInterface = null;
+                
                 for (const intf of device.configuration.interfaces) {
-                    debugLog(`Checking interface ${intf.interfaceNumber}...`);
+                    debugLog(`Checking interface ${intf.interfaceNumber}, class: ${intf.alternates[0].interfaceClass}`);
                     
-                    // CH343 CDC uses interface class 2 (Communications)
-                    for (const alt of intf.alternates) {
-                        const epIn = alt.endpoints.find(e => e.direction === 'in' && e.type === 'bulk');
-                        const epOut = alt.endpoints.find(e => e.direction === 'out' && e.type === 'bulk');
-                        
-                        if (epIn && epOut) {
-                            iface = intf;
-                            await device.claimInterface(iface.interfaceNumber);
-                            debugLog(`Interface ${iface.interfaceNumber} claimed (class: ${alt.interfaceClass})`);
-                            
-                            endpointIn = epIn;
-                            endpointOut = epOut;
-                            foundInterface = true;
-                            debugLog(`Endpoints: IN=${endpointIn.endpointNumber}, OUT=${endpointOut.endpointNumber}`);
-                            break;
-                        }
+                    // Interface class 2 = CDC Communications (control)
+                    // Interface class 10 = CDC Data
+                    if (intf.alternates[0].interfaceClass === 2) {
+                        controlInterface = intf;
+                        await device.claimInterface(intf.interfaceNumber);
+                        debugLog(`Claimed control interface ${intf.interfaceNumber}`);
+                    } else if (intf.alternates[0].interfaceClass === 10) {
+                        dataInterface = intf;
+                        await device.claimInterface(intf.interfaceNumber);
+                        debugLog(`Claimed data interface ${intf.interfaceNumber}`);
                     }
-                    if (foundInterface) break;
+                }
+                
+                if (!controlInterface || !dataInterface) {
+                    throw new Error('Could not find both CDC control and data interfaces');
+                }
+                
+                // Use control interface for commands, data interface for bulk transfers
+                iface = controlInterface;
+                
+                // Get endpoints from data interface
+                const dataAlt = dataInterface.alternates[0];
+                endpointIn = dataAlt.endpoints.find(e => e.direction === 'in' && e.type === 'bulk');
+                endpointOut = dataAlt.endpoints.find(e => e.direction === 'out' && e.type === 'bulk');
+
+                if (!endpointIn || !endpointOut) {
+                    throw new Error('Could not find bulk IN/OUT endpoints on data interface');
                 }
 
-                if (!foundInterface) {
-                    throw new Error('No interface with bulk IN/OUT endpoints found');
-                }
+                debugLog(`Endpoints: IN=${endpointIn.endpointNumber}, OUT=${endpointOut.endpointNumber}`);
 
                 // Set line coding (baud rate, stop bits, parity, data bits)
                 currentBaudRate = parseInt(document.getElementById('baudrate').value);
                 const parityValue = document.getElementById('parity').value;
                 await cdcSetLineCoding(currentBaudRate, parityValue);
+                
+                // Verify the settings by reading them back
+                await cdcGetLineCoding();
 
                 updateStatus('Connected successfully (Android mode)');
                 keepReading = true;
@@ -343,11 +356,41 @@
                     index: iface.interfaceNumber
                 });
                 
-                debugLog(`Line coding: ${baudRate} baud, ${parityType} parity, 8N1`);
-                debugLog('DTR and RTS activated');
+                debugLog(`✓ Set: ${baudRate} baud, ${parityType} parity, 8N1, DTR+RTS active`);
             } catch (err) {
                 debugLog(`Set line coding error: ${err.message}`);
                 throw err;
+            }
+        }
+
+        async function cdcGetLineCoding() {
+            try {
+                const result = await device.controlTransferIn({
+                    requestType: 'class',
+                    recipient: 'interface',
+                    request: CDC_GET_LINE_CODING,
+                    value: 0,
+                    index: iface.interfaceNumber
+                }, 7);
+                
+                if (result.data && result.data.byteLength === 7) {
+                    const data = new Uint8Array(result.data.buffer);
+                    const baudRate = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+                    const stopBits = data[4];
+                    const parity = data[5];
+                    const dataBits = data[6];
+                    
+                    const parityNames = ['none', 'odd', 'even', 'mark', 'space'];
+                    debugLog(`✓ Read back: ${baudRate} baud, ${parityNames[parity] || parity} parity, ${dataBits} data bits, ${stopBits} stop bits`);
+                    
+                    if (baudRate !== currentBaudRate) {
+                        debugLog(`⚠ WARNING: Baud rate mismatch! Set ${currentBaudRate} but device reports ${baudRate}`);
+                    }
+                } else {
+                    debugLog('Could not read line coding');
+                }
+            } catch (err) {
+                debugLog(`Get line coding error: ${err.message}`);
             }
         }
 
@@ -404,8 +447,12 @@
 
             if (device) {
                 try {
-                    if (iface) {
-                        await device.releaseInterface(iface.interfaceNumber);
+                    // Release both interfaces
+                    for (const intf of device.configuration.interfaces) {
+                        try {
+                            await device.releaseInterface(intf.interfaceNumber);
+                            debugLog(`Released interface ${intf.interfaceNumber}`);
+                        } catch (err) {}
                     }
                     await device.close();
                     debugLog('Device closed');
