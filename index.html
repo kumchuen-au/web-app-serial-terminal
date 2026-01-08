@@ -1,102 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Universal Serial Terminal (CH343 Enhanced)</title>
+    <title>Universal Serial Terminal (Fixed Disconnect)</title>
     <script src="https://unpkg.com/web-serial-polyfill/dist/serial.js"></script>
     <style>
-        body {
-            font-family: sans-serif;
-            padding: 15px;
-            background: #f0f2f5;
-        }
-
-        .card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            max-width: 900px;
-            margin: auto;
-        }
-
-        .controls {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-bottom: 15px;
-            align-items: center;
-        }
-
-        .signal-controls {
-            display: flex;
-            gap: 10px;
-            margin: 15px 0;
-            padding: 10px;
-            background: #eee;
-            border-radius: 5px;
-        }
-
-        #terminal {
-            width: 100%;
-            height: 300px;
-            background: #1e1e1e;
-            color: #00ff00;
-            padding: 15px;
-            overflow-y: auto;
-            font-family: monospace;
-            border-radius: 5px;
-            margin-bottom: 10px;
-            white-space: pre-wrap;
-        }
-
-        #debugLog {
-            width: 100%;
-            height: 80px;
-            background: #333;
-            color: #ffcc00;
-            padding: 10px;
-            font-size: 12px;
-            overflow-y: auto;
-            border-radius: 5px;
-            margin-top: 10px;
-        }
-
-        button {
-            padding: 10px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: bold;
-            color: white;
-            background: #007bff;
-        }
-
-        button:disabled {
-            background: #ccc !important;
-        }
-
-        .btn-off {
-            background: #6c757d;
-            width: 80px;
-        }
-
-        .btn-on {
-            background: #28a745;
-            width: 80px;
-        }
-
-        input[type="text"] {
-            padding: 10px;
-            flex-grow: 1;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
+        body { font-family: sans-serif; padding: 15px; background: #f0f2f5; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 900px; margin: auto; }
+        .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }
+        .signal-controls { display: flex; gap: 10px; margin: 15px 0; padding: 10px; background: #eee; border-radius: 5px; }
+        #terminal { width: 100%; height: 300px; background: #1e1e1e; color: #00ff00; padding: 15px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; box-sizing: border-box; }
+        #debugLog { width: 100%; height: 80px; background: #333; color: #ffcc00; padding: 10px; font-size: 12px; overflow-y: auto; border-radius: 5px; margin-top: 10px; box-sizing: border-box; }
+        button { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; background: #007bff; }
+        button:disabled { background: #ccc !important; cursor: not-allowed; }
+        .btn-off { background: #6c757d; width: 80px; }
+        .btn-on { background: #28a745; width: 80px; }
+        input[type="text"] { padding: 10px; flex-grow: 1; border: 1px solid #ccc; border-radius: 4px; }
     </style>
 </head>
-
 <body>
 
     <div class="card">
@@ -113,7 +35,7 @@
                 <option value="even">Even</option>
                 <option value="odd">Odd</option>
             </select>
-            <button id="disconnectBtn" style="background:#dc3545;" disabled>Disconnect</button>
+            <button id="disconnectBtn" style="background:#dc3545;" disabled>Disconnect & Unpair</button>
         </div>
 
         <div class="signal-controls">
@@ -125,6 +47,7 @@
                 <label>RTS:</label>
                 <button id="rtsBtn" class="btn-off" disabled>OFF</button>
             </div>
+            <button id="clearBtn" style="background:#6c757d; margin-left: auto;">Clear Terminal</button>
         </div>
 
         <div id="terminal">--- Waiting for Device ---</div>
@@ -139,11 +62,13 @@
     </div>
 
     <script>
-        // Polyfill check
         const serial = navigator.serial || (window.serialPolyfill ? serialPolyfill : null);
 
-        let port, reader, keepReading = true;
-        let dtrState = false, rtsState = false;
+        let port = null;
+        let reader = null;
+        let keepReading = true;
+        let dtrState = false;
+        let rtsState = false;
 
         const debugLog = (msg) => {
             const log = document.getElementById('debugLog');
@@ -159,66 +84,99 @@
                 } catch (e) { debugLog("Signal Error: " + e.message); }
             }
         }
+
         document.getElementById('connectBtn').onclick = async () => {
             try {
                 debugLog("Requesting Port...");
-
                 const filters = [
                     { usbVendorId: 0x1A86, usbProductId: 0x55D3 }, // CH343
                     { usbVendorId: 0x1A86, usbProductId: 0x7523 }, // CH340/341
-                    { usbVendorId: 0x1A86 }                         // Any QinHeng
+                    { usbVendorId: 0x1A86 }                        // Any QinHeng
                 ];
 
-                // Try to request the port
                 port = await serial.requestPort({ filters });
+                
                 debugLog("Port Selected. Opening...");
-
                 await port.open({
                     baudRate: parseInt(document.getElementById('baudrate').value),
                     parity: document.getElementById('parity').value
                 });
 
                 debugLog("Connected Successfully!");
+                keepReading = true;
                 uiState(true);
                 readLoop();
             } catch (err) {
                 debugLog("Connect Error: " + err.message);
-
-                // FORCE SCANNER: Run this regardless of the error type
-                if (navigator.usb) {
-                    debugLog("Scanning all USB devices...");
-                    const usbDevs = await navigator.usb.getDevices();
-                    if (usbDevs.length === 0) {
-                        debugLog("Result: 0 USB devices found. Check OTG/Cable.");
-                    } else {
-                        debugLog(`Found ${usbDevs.length} raw USB devices:`);
-                        usbDevs.forEach(d => {
-                            debugLog(`-> VID: 0x${d.vendorId.toString(16).padStart(4, '0')} PID: 0x${d.productId.toString(16).padStart(4, '0')}`);
-                        });
-                    }
-                }
             }
         };
 
         async function readLoop() {
-            while (port.readable && keepReading) {
+            while (port && port.readable && keepReading) {
                 reader = port.readable.getReader();
                 try {
                     while (true) {
                         const { value, done } = await reader.read();
                         if (done) break;
-                        document.getElementById('terminal').innerText += new TextDecoder().decode(value);
-                        terminal.scrollTop = terminal.scrollHeight;
+                        const decoded = new TextDecoder().decode(value);
+                        document.getElementById('terminal').innerText += decoded;
+                        document.getElementById('terminal').scrollTop = document.getElementById('terminal').scrollHeight;
                     }
-                } catch (err) { break; } finally { reader.releaseLock(); }
+                } catch (err) {
+                    debugLog("Read loop error: " + err.message);
+                } finally {
+                    reader.releaseLock();
+                    reader = null;
+                }
             }
         }
 
         document.getElementById('sendBtn').onclick = async () => {
+            if (!port || !port.writable) return;
             const writer = port.writable.getWriter();
-            await writer.write(new TextEncoder().encode(document.getElementById('inputLine').value + '\r\n'));
-            writer.releaseLock();
-            document.getElementById('inputLine').value = '';
+            try {
+                const data = document.getElementById('inputLine').value + '\r\n';
+                await writer.write(new TextEncoder().encode(data));
+                debugLog("Sent: " + data.trim());
+            } catch (err) {
+                debugLog("Send Error: " + err.message);
+            } finally {
+                writer.releaseLock();
+                document.getElementById('inputLine').value = '';
+            }
+        };
+
+        // --- THE FIX: CLEAN DISCONNECT AND UNPAIR ---
+        document.getElementById('disconnectBtn').onclick = async () => {
+            debugLog("Initiating clean disconnect...");
+            keepReading = false;
+
+            if (reader) {
+                debugLog("Cancelling reader...");
+                await reader.cancel();
+            }
+
+            if (port) {
+                try {
+                    await port.close();
+                    debugLog("Port closed.");
+
+                    // port.forget() removes the "Paired" status in Chrome
+                    if (port.forget) {
+                        await port.forget();
+                        debugLog("Permission revoked (Unpaired).");
+                    }
+                } catch (err) {
+                    debugLog("Disconnect error: " + err.message);
+                }
+                port = null;
+            }
+
+            uiState(false);
+        };
+
+        document.getElementById('clearBtn').onclick = () => {
+            document.getElementById('terminal').innerText = "";
         };
 
         document.getElementById('dtrBtn').onclick = async function () {
@@ -235,16 +193,17 @@
             await applySignals();
         };
 
-        document.getElementById('disconnectBtn').onclick = () => location.reload();
-
         function uiState(connected) {
             document.getElementById('connectBtn').disabled = connected;
             document.getElementById('disconnectBtn').disabled = !connected;
             document.getElementById('sendBtn').disabled = !connected;
             document.getElementById('dtrBtn').disabled = !connected;
             document.getElementById('rtsBtn').disabled = !connected;
+            
+            if (!connected) {
+                document.getElementById('terminal').innerText += "\n--- Port Released ---";
+            }
         }
     </script>
 </body>
-
 </html>
