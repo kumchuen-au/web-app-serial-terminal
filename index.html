@@ -285,7 +285,8 @@
 
                 // Set line coding (baud rate, stop bits, parity, data bits)
                 currentBaudRate = parseInt(document.getElementById('baudrate').value);
-                await cdcSetLineCoding(currentBaudRate);
+                const parityValue = document.getElementById('parity').value;
+                await cdcSetLineCoding(currentBaudRate, parityValue);
 
                 updateStatus('Connected successfully (Android mode)');
                 keepReading = true;
@@ -298,7 +299,7 @@
             }
         }
 
-        async function cdcSetLineCoding(baudRate) {
+        async function cdcSetLineCoding(baudRate, parityType = 'none') {
             try {
                 // CDC Line Coding structure: 7 bytes
                 // dwDTERate (4 bytes) - baud rate
@@ -313,7 +314,14 @@
                 lineCoding[2] = (baudRate >> 16) & 0xFF;
                 lineCoding[3] = (baudRate >> 24) & 0xFF;
                 lineCoding[4] = 0; // 1 stop bit
-                lineCoding[5] = 0; // No parity
+                
+                // Parity mapping
+                const parityMap = {
+                    'none': 0,
+                    'odd': 1,
+                    'even': 2
+                };
+                lineCoding[5] = parityMap[parityType] || 0;
                 lineCoding[6] = 8; // 8 data bits
                 
                 await device.controlTransferOut({
@@ -324,7 +332,7 @@
                     index: iface.interfaceNumber
                 }, lineCoding);
                 
-                debugLog(`Baud rate set: ${baudRate}`);
+                debugLog(`Line coding: ${baudRate} baud, ${parityType} parity, 8N1`);
             } catch (err) {
                 debugLog(`Set line coding error: ${err.message}`);
                 throw err;
