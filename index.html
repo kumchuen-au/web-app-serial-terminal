@@ -1,29 +1,117 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Universal Serial Terminal (Desktop + Android)</title>
     <style>
-        body { font-family: sans-serif; padding: 15px; background: #f0f2f5; }
-        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 900px; margin: auto; }
-        .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }
-        .signal-controls { display: flex; gap: 10px; margin: 15px 0; padding: 10px; background: #eee; border-radius: 5px; }
-        #terminal { width: 100%; height: 300px; background: #1e1e1e; color: #00ff00; padding: 15px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; box-sizing: border-box; }
-        #debugLog { width: 100%; height: 100px; background: #333; color: #ffcc00; padding: 10px; font-size: 12px; overflow-y: auto; border-radius: 5px; margin-top: 10px; box-sizing: border-box; }
-        button { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; background: #007bff; }
-        button:disabled { background: #ccc !important; cursor: not-allowed; }
-        .btn-off { background: #6c757d; width: 80px; }
-        .btn-on { background: #28a745; width: 80px; }
-        input[type="text"] { padding: 10px; flex-grow: 1; border: 1px solid #ccc; border-radius: 4px; }
-        .status { padding: 10px; margin-bottom: 10px; border-radius: 5px; background: #e3f2fd; border-left: 4px solid #2196f3; }
+        body {
+            font-family: sans-serif;
+            padding: 15px;
+            background: #f0f2f5;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 900px;
+            margin: auto;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .signal-controls {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+            padding: 10px;
+            background: #eee;
+            border-radius: 5px;
+        }
+
+        #terminal {
+            width: 100%;
+            height: 300px;
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            overflow-y: auto;
+            font-family: monospace;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+        }
+
+        #debugLog {
+            width: 100%;
+            height: 100px;
+            background: #333;
+            color: #ffcc00;
+            padding: 10px;
+            font-size: 12px;
+            overflow-y: auto;
+            border-radius: 5px;
+            margin-top: 10px;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            color: white;
+            background: #007bff;
+        }
+
+        button:disabled {
+            background: #ccc !important;
+            cursor: not-allowed;
+        }
+
+        .btn-off {
+            background: #6c757d;
+            width: 80px;
+        }
+
+        .btn-on {
+            background: #28a745;
+            width: 80px;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            flex-grow: 1;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .status {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+        }
     </style>
 </head>
+
 <body>
 
     <div class="card">
         <h2>Serial Terminal (Universal)</h2>
-        
+
         <div class="status" id="statusMsg">
             <strong>Status:</strong> Checking API support...
         </div>
@@ -31,6 +119,8 @@
         <div class="controls">
             <button id="connectBtn">Connect Device</button>
             <select id="baudrate">
+                <option value="1200">1200</option>
+                <option value="4800">4800</option>
                 <option value="9600">9600</option>
                 <option value="19200">19200</option>
                 <option value="38400">38400</option>
@@ -74,13 +164,14 @@
         const isAndroid = /Android/i.test(navigator.userAgent);
         const useWebSerial = 'serial' in navigator && !isAndroid;
         const useWebUSB = 'usb' in navigator && (isAndroid || !('serial' in navigator));
-        
+
         // CH343/CH340 USB IDs
         const CH343_VENDOR_ID = 0x1A86;
         const USB_FILTERS = [
             { usbVendorId: 0x1A86, usbProductId: 0x55D3 }, // CH343
             { usbVendorId: 0x1A86, usbProductId: 0x55D4 }, // CH343G
             { usbVendorId: 0x1A86, usbProductId: 0x7523 }, // CH340
+            { usbVendorId: 0x10C4, usbProductId: 0xEA60 }, // CP2102            
             { usbVendorId: 0x1A86 }                        // Any QinHeng
         ];
 
@@ -100,6 +191,34 @@
         let rtsState = false;
         let currentBaudRate = 115200;
 
+
+        // Clean up when the user leaves the page
+        
+        window.addEventListener('beforeunload', async () => {
+            debugLog(' beforeunload even detected ');
+            if (port) {
+                // 1. Stop the reading loop
+                keepReading = false;
+                
+                // 2. Cancel and release the reader
+                if (reader) {
+                    await reader.cancel();
+                    // The read loop's finally block will release the lock
+                }
+
+                // 3. Close and Forget (Revoke Permission)
+                try {
+                    await port.close();
+                    if (port.forget) {
+                        // This officially "unpairs" the device from the browser
+                        await port.forget();
+                    }
+                } catch (e) {
+                    console.error("Auto-cleanup failed:", e);
+                }
+            }
+        });        
+        
         const debugLog = (msg) => {
             const log = document.getElementById('debugLog');
             const timestamp = new Date().toLocaleTimeString();
@@ -113,6 +232,31 @@
             status.style.background = isError ? '#ffebee' : '#e3f2fd';
             status.style.borderColor = isError ? '#f44336' : '#2196f3';
         };
+
+        window.addEventListener('beforeunload', async () => {
+            debugLog(' beforeunload even detected ');
+            if (port) {
+                // 1. Stop the reading loop
+                keepReading = false;
+                
+                // 2. Cancel and release the reader
+                if (reader) {
+                    await reader.cancel();
+                    // The read loop's finally block will release the lock
+                }
+
+                // 3. Close and Forget (Revoke Permission)
+                try {
+                    await port.close();
+                    if (port.forget) {
+                        // This officially "unpairs" the device from the browser
+                        await port.forget();
+                    }
+                } catch (e) {
+                    console.error("Auto-cleanup failed:", e);
+                }
+            }
+        });        
 
         // Initialize
         if (useWebSerial) {
@@ -130,14 +274,35 @@
         // ============================================
         // WEB SERIAL API (DESKTOP)
         // ============================================
+   
+        // Function to clear any "stray" permissions left over from previous sessions
+        async function cleanupStrayPorts() {
+            if (useWebSerial && navigator.serial) {
+                try {
+                    const ports = await navigator.serial.getPorts();
+                    if (ports.length > 0) {
+                        debugLog(`Found ${ports.length} stray authorized ports. Cleaning up...`);
+                        for (const strayPort of ports) {
+                            // Proactively forget the port to clear the "Paired" state
+                            if (strayPort.forget) {
+                                await strayPort.forget();
+                            }
+                        }
+                        debugLog("Stray ports cleared.");
+                    }
+                } catch (err) {
+                    console.error("Cleanup failed:", err);
+                }
+            }
+        }        
+        
         async function connectWebSerial() {
             try {
                 debugLog('Requesting serial port...');
                 port = await navigator.serial.requestPort({ filters: USB_FILTERS });
-                
+
                 currentBaudRate = parseInt(document.getElementById('baudrate').value);
                 const parityValue = document.getElementById('parity').value;
-                
                 debugLog(`Opening port: ${currentBaudRate} baud, ${parityValue} parity`);
                 await port.open({
                     baudRate: currentBaudRate,
@@ -146,13 +311,30 @@
                     stopBits: 1
                 });
 
+                // --- ADD THIS BLOCK TO ENFORCE INITIAL OFF STATE ---
+                dtrState = false;
+                rtsState = false;
+                await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+
+                // Synchronize the UI buttons to match the forced state
+                document.getElementById('dtrBtn').className = "btn-off";
+                document.getElementById('dtrBtn').innerText = "OFF";
+                document.getElementById('rtsBtn').className = "btn-off";
+                document.getElementById('rtsBtn').innerText = "OFF";
+                // ----------------------------------------------------
+
                 debugLog('Connected via Web Serial API');
                 updateStatus('Connected successfully (Desktop mode)');
                 keepReading = true;
                 uiState(true);
                 readLoopSerial();
             } catch (err) {
-                updateStatus(`Connection failed: ${err.message}`, true);
+                if (err.name === 'NotFoundError') {
+                    debugLog('User cancelled device selection.');
+                    return;
+                }
+                debugLog(`ERROR name: ${err.name}`);
+                updateStatus(`Connection failed 2: ${err.message}`, true);
                 debugLog(`ERROR: ${err.message}`);
             }
         }
@@ -203,18 +385,18 @@
         async function disconnectSerial() {
             debugLog('Disconnecting Web Serial...');
             keepReading = false;
-            
+
             if (reader) {
                 try {
                     await reader.cancel();
-                } catch (err) {}
+                } catch (err) { }
             }
 
             if (port) {
                 try {
                     await port.close();
                     debugLog('Port closed');
-                    
+
                     // Unpair the device so it can be selected again
                     if (port.forget) {
                         await port.forget();
@@ -238,14 +420,16 @@
         async function connectWebUSB() {
             try {
                 debugLog('Requesting USB device...');
-                device = await navigator.usb.requestDevice({
-                    filters: [
-                        { vendorId: CH343_VENDOR_ID, productId: 0x55D3 },
-                        { vendorId: CH343_VENDOR_ID, productId: 0x55D4 },
-                        { vendorId: CH343_VENDOR_ID, productId: 0x7523 },
-                        { vendorId: CH343_VENDOR_ID }
-                    ]
-                });
+                const FILTERS = USB_FILTERS.map(f => ({ vendorId: f.usbVendorId, productId: f.usbProductId }));
+                // device = await navigator.usb.requestDevice({
+                //     filters: [
+                //         { vendorId: CH343_VENDOR_ID, productId: 0x55D3 },
+                //         { vendorId: CH343_VENDOR_ID, productId: 0x55D4 },
+                //         { vendorId: CH343_VENDOR_ID, productId: 0x7523 },
+                //         { vendorId: CH343_VENDOR_ID }
+                //     ]
+                //  });
+                device = await navigator.usb.requestDevice({ filters:FILTERS });
 
                 debugLog(`Device: ${device.productName || 'Unknown'} (VID:0x${device.vendorId.toString(16)} PID:0x${device.productId.toString(16)})`);
 
@@ -258,10 +442,10 @@
                 // We need to claim both
                 let controlInterface = null;
                 let dataInterface = null;
-                
+
                 for (const intf of device.configuration.interfaces) {
                     debugLog(`Checking interface ${intf.interfaceNumber}, class: ${intf.alternates[0].interfaceClass}`);
-                    
+
                     // Interface class 2 = CDC Communications (control)
                     // Interface class 10 = CDC Data
                     if (intf.alternates[0].interfaceClass === 2) {
@@ -274,14 +458,14 @@
                         debugLog(`Claimed data interface ${intf.interfaceNumber}`);
                     }
                 }
-                
+
                 if (!controlInterface || !dataInterface) {
                     throw new Error('Could not find both CDC control and data interfaces');
                 }
-                
+
                 // Use control interface for commands, data interface for bulk transfers
                 iface = controlInterface;
-                
+
                 // Get endpoints from data interface
                 const dataAlt = dataInterface.alternates[0];
                 endpointIn = dataAlt.endpoints.find(e => e.direction === 'in' && e.type === 'bulk');
@@ -297,7 +481,7 @@
                 currentBaudRate = parseInt(document.getElementById('baudrate').value);
                 const parityValue = document.getElementById('parity').value;
                 await cdcSetLineCoding(currentBaudRate, parityValue);
-                
+
                 // Verify the settings by reading them back
                 await cdcGetLineCoding();
 
@@ -319,7 +503,7 @@
                 // bCharFormat (1 byte) - stop bits (0=1, 1=1.5, 2=2)
                 // bParityType (1 byte) - parity (0=none, 1=odd, 2=even, 3=mark, 4=space)
                 // bDataBits (1 byte) - data bits (5,6,7,8)
-                
+
                 const lineCoding = new Uint8Array(7);
                 // Baud rate (little-endian)
                 lineCoding[0] = baudRate & 0xFF;
@@ -327,7 +511,7 @@
                 lineCoding[2] = (baudRate >> 16) & 0xFF;
                 lineCoding[3] = (baudRate >> 24) & 0xFF;
                 lineCoding[4] = 0; // 1 stop bit
-                
+
                 // Parity mapping
                 const parityMap = {
                     'none': 0,
@@ -336,9 +520,9 @@
                 };
                 lineCoding[5] = parityMap[parityType] || 0;
                 lineCoding[6] = 8; // 8 data bits
-                
+
                 debugLog(`Setting line coding bytes: [${Array.from(lineCoding).map(b => '0x' + b.toString(16).padStart(2, '0')).join(', ')}]`);
-                
+
                 await device.controlTransferOut({
                     requestType: 'class',
                     recipient: 'interface',
@@ -346,7 +530,7 @@
                     value: 0,
                     index: iface.interfaceNumber
                 }, lineCoding);
-                
+
                 // Set DTR and RTS to OFF initially (both signals = 0)
                 await device.controlTransferOut({
                     requestType: 'class',
@@ -355,7 +539,7 @@
                     value: 0x00, // DTR=0, RTS=0
                     index: iface.interfaceNumber
                 });
-                
+
                 debugLog(`✓ Set: ${baudRate} baud, ${parityType} parity, 8N1, DTR=OFF, RTS=OFF`);
             } catch (err) {
                 debugLog(`Set line coding error: ${err.message}`);
@@ -372,18 +556,18 @@
                     value: 0,
                     index: iface.interfaceNumber
                 }, 7);
-                
+
                 if (result.data && result.data.byteLength === 7) {
                     const data = new Uint8Array(result.data.buffer);
                     const baudRate = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
                     const stopBits = data[4];
                     const parity = data[5];
                     const dataBits = data[6];
-                    
+
                     const parityNames = ['none', 'odd', 'even', 'mark', 'space'];
                     const stopBitsNames = ['1', '1.5', '2'];
                     debugLog(`✓ Read back: ${baudRate} baud, ${dataBits}${parityNames[parity] || 'N'}${stopBitsNames[stopBits] || stopBits}`);
-                    
+
                     if (baudRate !== currentBaudRate) {
                         debugLog(`⚠ WARNING: Baud rate mismatch! Set ${currentBaudRate} but device reports ${baudRate}`);
                     }
@@ -399,7 +583,7 @@
             while (device && keepReading) {
                 try {
                     const result = await device.transferIn(endpointIn.endpointNumber, 64);
-                    
+
                     if (result.data && result.data.byteLength > 0) {
                         const text = new TextDecoder().decode(result.data);
                         document.getElementById('terminal').innerText += text;
@@ -427,7 +611,7 @@
                 // Bit 0: DTR
                 // Bit 1: RTS
                 const controlLineState = (dtr ? 0x01 : 0) | (rts ? 0x02 : 0);
-                
+
                 await device.controlTransferOut({
                     requestType: 'class',
                     recipient: 'interface',
@@ -435,7 +619,7 @@
                     value: controlLineState,
                     index: iface.interfaceNumber
                 });
-                
+
                 debugLog(`Signals: DTR=${dtr}, RTS=${rts}`);
             } catch (err) {
                 debugLog(`Signal error: ${err.message}`);
@@ -453,7 +637,7 @@
                         try {
                             await device.releaseInterface(intf.interfaceNumber);
                             debugLog(`Released interface ${intf.interfaceNumber}`);
-                        } catch (err) {}
+                        } catch (err) { }
                     }
                     await device.close();
                     debugLog('Device closed');
@@ -467,11 +651,34 @@
         // ============================================
         // UNIFIED INTERFACE
         // ============================================
+        // document.getElementById('connectBtn').onclick = async () => {
+        //     if (useWebSerial) {
+        //         await connectWebSerial();
+        //     } else if (useWebUSB) {
+        //         await connectWebUSB();
+        //     }
+        // };
         document.getElementById('connectBtn').onclick = async () => {
-            if (useWebSerial) {
-                await connectWebSerial();
-            } else if (useWebUSB) {
-                await connectWebUSB();
+            try {
+                
+                if (useWebSerial) {
+                    await cleanupStrayPorts();                
+                    await connectWebSerial();
+                } else if (useWebUSB) {
+                    await connectWebUSB();
+                }
+            } catch (err) {
+
+                // If the user cancelled, 'NotFoundError' is thrown.
+                // We check for this and do nothing if found.
+                if (err.name === 'NotFoundError') {
+                    debugLog('User cancelled device selection.');
+                    return;
+                }
+
+                // For all other actual errors, show the message
+                updateStatus(`Connection failed: ${err.message}`, true);
+                debugLog(`ERROR: ${err.message}`);
             }
         };
 
@@ -504,7 +711,7 @@
             dtrState = !dtrState;
             this.className = dtrState ? "btn-on" : "btn-off";
             this.innerText = dtrState ? "ON" : "OFF";
-            
+
             if (useWebSerial) {
                 await setSignalsSerial(dtrState, rtsState);
             } else if (useWebUSB) {
@@ -516,7 +723,7 @@
             rtsState = !rtsState;
             this.className = rtsState ? "btn-on" : "btn-off";
             this.innerText = rtsState ? "ON" : "OFF";
-            
+
             if (useWebSerial) {
                 await setSignalsSerial(dtrState, rtsState);
             } else if (useWebUSB) {
@@ -542,11 +749,12 @@
             document.getElementById('rtsBtn').disabled = !connected;
             document.getElementById('baudrate').disabled = connected;
             document.getElementById('parity').disabled = connected;
-            
+
             if (!connected) {
                 document.getElementById('terminal').innerText += "\n--- Disconnected ---";
             }
         }
     </script>
 </body>
+
 </html>
